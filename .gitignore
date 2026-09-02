@@ -1,0 +1,19 @@
+.DS_Store
+Thumbs.db
+desktop.ini
+
+node_modules/
+.tmp/
+.cache/
+*.log
+*.tmp
+*.bak
+
+# Local secret files. The bootstrap asks for the token at runtime.
+token.txt
+*.token
+*.secret
+*.secrets
+.env
+.env.*
+!.env.example
