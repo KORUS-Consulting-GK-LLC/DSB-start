@@ -15,6 +15,7 @@
 - Токен не попадает в argv, URL, GitHub, README-примеры или completion report.
 - `bootstrap.mjs` скачивается только после Bearer-аутентификации и проверяется по SHA-256 из `install-plan.json`.
 - PowerShell использует `-ExecutionPolicy Bypass` только для текущего процесса.
+- Первичное скачивание launcher-а не требует Git: оно выполняется через HTTPS/PowerShell, а Git проверяется и устанавливается уже внутри `install.ps1`.
 - Скрипт не меняет `hosts`, не отключает TLS и не добавляет сертификаты.
 
 ## Остаточные риски

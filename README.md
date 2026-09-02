@@ -9,22 +9,26 @@
 Напишите агенту в проекте:
 
 ```text
-Подключи песочницу DepSandbox к текущему проекту. Токен попроси ввести локально в терминале, в чат я его вставлять не буду.
+Подключи песочницу DepSandbox (https://github.com/KORUS-Consulting-GK-LLC/DSB-start) к текущему проекту. Токен попроси ввести локально в терминале, в чат я его вставлять не буду.
 ```
 
-Агент должен сам запустить официальный `DSB-start` из GitHub и выполнить настройку. Когда появится скрытый ввод токена в терминале, введите выданный MCP-токен туда.
+Агент должен открыть этот репозиторий, прочитать `AGENT-INSTALL.md`, сам запустить официальный `DSB-start` из GitHub и выполнить настройку. Когда появится скрытый ввод токена в терминале, введите выданный MCP-токен туда.
 
 ## Команда для агента
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$u='https://raw.githubusercontent.com/KORUS-Consulting-GK-LLC/DSB-start/main/install.ps1'; $p=Join-Path $env:TEMP ('dsb-start-' + [guid]::NewGuid() + '.ps1'); Invoke-WebRequest -UseBasicParsing -Uri $u -OutFile $p; & $p"
+$u = 'https://raw.githubusercontent.com/KORUS-Consulting-GK-LLC/DSB-start/main/install.ps1'
+$p = Join-Path $env:TEMP ('dsb-start-' + [guid]::NewGuid() + '.ps1')
+Invoke-WebRequest -UseBasicParsing -Uri $u -OutFile $p
+Unblock-File -LiteralPath $p -ErrorAction SilentlyContinue
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p
 ```
 
 Эта команда нужна агенту или администратору как технический fallback. Обычному пользователю достаточно фразы из раздела «Быстрый запуск».
 
 ## Что делает установщик
 
-1. Проверяет Git, Node.js 18+ и Python 3; если их нет, пытается поставить через `winget`.
+1. Проверяет Git, Node.js 18+ и Python 3; если их нет, ищет встроенные runtime-инструменты Codex и пытается поставить недостающее через `winget`.
 2. Скрыто запрашивает MCP-токен у пользователя.
 3. С этим токеном получает `install-plan.json` с `mcp.dep1c.com`.
 4. Скачивает защищённый `bootstrap.mjs`, сверяет SHA-256 из install plan.
@@ -35,7 +39,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$u='https://raw.githubus
 ## Параметры
 
 ```powershell
-.\install.ps1 [-ProjectRoot C:\path\project] [-Client auto|codex|cursor] [-Configuration UT1152781,ERP_2_5_26_118] [-BaseOnly] [-AllConfigurations] [-DryRun]
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 [-ProjectRoot C:\path\project] [-Client auto|codex|cursor] [-Configuration UT1152781,ERP_2_5_26_118] [-BaseOnly] [-AllConfigurations] [-DryRun]
 ```
 
 Полезные варианты:
@@ -59,10 +63,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$u='https://raw.githubus
 Ожидаемая пользовательская фраза:
 
 ```text
-Подключи песочницу DepSandbox к текущему проекту. Токен попроси ввести локально в терминале, в чат я его вставлять не буду.
+Подключи песочницу DepSandbox (https://github.com/KORUS-Consulting-GK-LLC/DSB-start) к текущему проекту. Токен попроси ввести локально в терминале, в чат я его вставлять не буду.
 ```
 
-Агент должен открыть терминал в корне проекта и выполнить команду из раздела «Команда для агента». Если среда блокирует отправку Bearer-токена внешнему host из чата, это штатный сценарий: токен вводится локально в `install.ps1`.
+Агент должен прочитать `AGENT-INSTALL.md`, открыть терминал в корне проекта и выполнить команду из раздела «Команда для агента». Если среда блокирует отправку Bearer-токена внешнему host из чата, это штатный сценарий: токен вводится локально в `install.ps1`.
+
+Если Git не установлен на машине пользователя, это тоже штатный сценарий. Первая команда скачивает launcher без Git, а `install.ps1` дальше найдёт доступный Git или установит его сам.
 
 ## Проверка репозитория
 

@@ -32,6 +32,7 @@ function Resolve-RequiredPath {
 
 function Update-ProcessPath {
   $pathParts = @()
+  if ($env:Path) { $pathParts += $env:Path.Split(";") }
   $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
   $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
   if ($machinePath) { $pathParts += $machinePath.Split(";") }
@@ -44,6 +45,16 @@ function Update-ProcessPath {
     (Join-Path $env:LOCALAPPDATA "Programs\Python\Python312"),
     (Join-Path $env:LOCALAPPDATA "Programs\Python\Python311")
   )
+  if ($env:USERPROFILE) {
+    $codexDeps = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies"
+    $pathParts += @(
+      (Join-Path $codexDeps "native\git\cmd"),
+      (Join-Path $codexDeps "native\git\bin"),
+      (Join-Path $codexDeps "node"),
+      (Join-Path $codexDeps "python"),
+      (Join-Path $codexDeps "python\Scripts")
+    )
+  }
   $env:Path = (($pathParts | ForEach-Object { ([string]$_).Trim().Trim('"') } | Where-Object { $_ } | Select-Object -Unique) -join ";")
 }
 

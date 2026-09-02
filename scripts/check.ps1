@@ -8,7 +8,9 @@ $ErrorActionPreference = "Stop"
 $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $install = Join-Path $root "install.ps1"
 $readme = Join-Path $root "README.md"
+$agentInstall = Join-Path $root "AGENT-INSTALL.md"
 $security = Join-Path $root "docs\security.md"
+$troubleshooting = Join-Path $root "docs\troubleshooting.md"
 
 $tokens = $null
 $errors = $null
@@ -18,7 +20,7 @@ if ($errors.Count -gt 0) {
   throw "install.ps1 has PowerShell parse errors."
 }
 
-$combined = [IO.File]::ReadAllText($install) + [IO.File]::ReadAllText($readme) + [IO.File]::ReadAllText($security)
+$combined = [IO.File]::ReadAllText($install) + [IO.File]::ReadAllText($readme) + [IO.File]::ReadAllText($agentInstall) + [IO.File]::ReadAllText($security) + [IO.File]::ReadAllText($troubleshooting)
 $forbiddenLiterals = @(
   "Authorization = `"Bearer "
 )
@@ -45,6 +47,18 @@ if (-not $combined.Contains("https://mcp.dep1c.com/connect")) {
 
 if (-not $combined.Contains("ExecutionPolicy Bypass")) {
   throw "ExecutionPolicy Bypass process-local guidance is absent."
+}
+
+if (-not $combined.Contains("powershell.exe -NoProfile -ExecutionPolicy Bypass -File `$p")) {
+  throw "ExecutionPolicy Bypass -File launcher command is absent."
+}
+
+if (-not $combined.Contains("Unblock-File -LiteralPath `$p")) {
+  throw "Unblock-File guidance is absent."
+}
+
+if (-not $combined.Contains("native\git\cmd")) {
+  throw "Codex bundled Git path is absent."
 }
 
 Write-Output "CHECK=OK"
