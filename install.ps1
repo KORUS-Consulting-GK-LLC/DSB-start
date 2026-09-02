@@ -156,6 +156,7 @@ function Get-PlainToken {
     return $value
   }
   Write-Step "Enter DepSandbox token. Input is hidden and is not sent through chat."
+  Write-Step "READY_FOR_TOKEN: the next prompt must be a plain hidden 'Token:' prompt, not a PowerShell 'PS ...>' command prompt."
   $secure = Read-Host "Token" -AsSecureString
   if ($secure.Length -eq 0) { throw "Token is empty." }
   $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)

@@ -61,4 +61,12 @@ if (-not $combined.Contains("native\git\cmd")) {
   throw "Codex bundled Git path is absent."
 }
 
+if (-not $combined.Contains("READY_FOR_TOKEN")) {
+  throw "Terminal readiness marker is absent."
+}
+
+if (-not $combined.Contains("PS C:\path>")) {
+  throw "PowerShell prompt warning example is absent."
+}
+
 Write-Output "CHECK=OK"

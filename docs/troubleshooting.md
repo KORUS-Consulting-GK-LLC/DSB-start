@@ -33,3 +33,21 @@ If corporate policy blocks `winget`, ask the local administrator to install:
 - Python 3
 
 Then run the same launcher command again.
+
+## Token was typed as a PowerShell command
+
+Symptom:
+
+```text
+PS C:\project> Token: ...
+Token: The term 'Token:' is not recognized...
+```
+
+The installer was not waiting for token input. The user typed the token into a normal PowerShell command prompt.
+
+What to do:
+
+1. Treat that token as exposed and replace it.
+2. Run the launcher command again.
+3. Wait until the terminal shows `[DSB-start] READY_FOR_TOKEN` followed by a plain `Token:` prompt.
+4. Type only the token value, without the `Token:` prefix.

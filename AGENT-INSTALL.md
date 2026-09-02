@@ -19,9 +19,12 @@ Unblock-File -LiteralPath $p -ErrorAction SilentlyContinue
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p
 ```
 
-3. When the terminal asks `Token:`, tell the user to type the token into that terminal prompt and press Enter.
-4. If the installer asks which configuration to connect, ask the user which configuration pair they need, or use the default pair if the user already named it.
-5. Report only the result and any non-secret blocker.
+3. Before asking the user for the token, verify that the installer is actually waiting for input:
+   - good state: the terminal shows `[DSB-start] READY_FOR_TOKEN` and then a plain `Token:` prompt;
+   - bad state: the terminal shows the normal PowerShell prompt like `PS C:\path>`; in this state the installer is not waiting, so do not ask for the token.
+4. When the terminal is in the good state, tell the user to type only the token value into that terminal prompt and press Enter. The user must not type the literal prefix `Token:`.
+5. If the installer asks which configuration to connect, ask the user which configuration pair they need, or use the default pair if the user already named it.
+6. Report only the result and any non-secret blocker.
 
 ## Important details
 
@@ -31,3 +34,4 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p
 - Do not run the downloaded temp `install.ps1` directly as `.\install.ps1` or `& $p`.
 - Do not edit the downloaded temp `install.ps1` for the current machine. Fixes belong in this repository, not in the temporary copy.
 - Do not pass the token in argv, URL, environment variables, Git files, or chat.
+- If the user typed `Token: ...` at a normal `PS ...>` prompt, treat the token as exposed, stop using it, and restart with a fresh token.
