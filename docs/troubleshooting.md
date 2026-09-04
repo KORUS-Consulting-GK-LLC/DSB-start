@@ -13,14 +13,17 @@ running scripts is disabled on this system
 Run the public launcher through a new PowerShell process with process-local execution policy:
 
 ```powershell
-$u = 'https://raw.githubusercontent.com/KORUS-Consulting-GK-LLC/DSB-start/main/install.ps1'
 $tokenFile = Resolve-Path -LiteralPath '.depsandbox-token.txt'
+$clientId = 'zcode'
+$u = 'https://raw.githubusercontent.com/KORUS-Consulting-GK-LLC/DSB-start/b1e2c8ca3aaf080c5bd0b8284f189e3dd769f873/install.ps1'
+$expected = '6afcefe6049bb34f45398bea042b05c7c514a7f42ef7aa6596e8b3f1c7f8584d'
 $launcherDir = Join-Path (Get-Location) '.depsandbox\launcher'
 New-Item -ItemType Directory -Force -Path $launcherDir | Out-Null
 $p = Join-Path $launcherDir 'install.ps1'
-Invoke-WebRequest -UseBasicParsing -Uri $u -OutFile $p
+Invoke-WebRequest -UseBasicParsing -Uri $u -OutFile $p -TimeoutSec 20
+if ((Get-FileHash -Algorithm SHA256 -LiteralPath $p).Hash.ToLowerInvariant() -ne $expected) { throw 'DSB-start launcher integrity check failed.' }
 Unblock-File -LiteralPath $p -ErrorAction SilentlyContinue
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -TokenFile $tokenFile -RemoveTokenFileAfterRead
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Client $clientId -TokenFile $tokenFile -RemoveTokenFileAfterRead
 ```
 
 This does not change the system-wide Windows policy.
@@ -60,6 +63,9 @@ What to do:
 This is usually a behavior-based detection, not proof that the public launcher contains malware. The risky pattern is an extra temporary PowerShell wrapper that starts a transcript, runs another downloaded `.ps1`, and passes paths through `%TEMP%`.
 
 Use the command from `AGENT-INSTALL.md` directly from the project terminal. Do not create `dsb-run*.ps1`, do not use `Start-Transcript`, and keep the token file in the project root until the launcher reads it.
+
+The official command downloads a fixed Git commit and verifies SHA-256. A
+different path or hash is not an equivalent launcher.
 
 ## Base-only setup unexpectedly asks for a configuration
 

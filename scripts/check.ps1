@@ -120,6 +120,18 @@ if (-not $combined.Contains("DEPSANDBOX_DOMAIN_UNAVAILABLE")) {
   throw "Domain-unavailable diagnostic marker is absent."
 }
 
+$releaseCommit = "b1e2c8ca3aaf080c5bd0b8284f189e3dd769f873"
+$releaseHash = "6afcefe6049bb34f45398bea042b05c7c514a7f42ef7aa6596e8b3f1c7f8584d"
+foreach ($relative in @("README.md", "AGENT-INSTALL.md", "docs\troubleshooting.md")) {
+  $publicText = [IO.File]::ReadAllText((Join-Path $root $relative))
+  if ($publicText.Contains("/main/install.ps1")) {
+    throw ("Mutable launcher URL remains in " + $relative)
+  }
+  if (-not $publicText.Contains($releaseCommit) -or -not $publicText.Contains($releaseHash)) {
+    throw ("Pinned launcher release metadata is incomplete in " + $relative)
+  }
+}
+
 if (-not $combined.Contains("HTTPS/TLS")) {
   throw "HTTPS/TLS preflight marker is absent."
 }

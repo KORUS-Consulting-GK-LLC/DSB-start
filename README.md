@@ -24,25 +24,32 @@
 
 ```powershell
 $tokenFile = Resolve-Path -LiteralPath '.depsandbox-token.txt'
-$u = 'https://raw.githubusercontent.com/KORUS-Consulting-GK-LLC/DSB-start/main/install.ps1'
+$clientId = 'zcode' # агент заменяет на фактический id своей среды
+$u = 'https://raw.githubusercontent.com/KORUS-Consulting-GK-LLC/DSB-start/b1e2c8ca3aaf080c5bd0b8284f189e3dd769f873/install.ps1'
+$expected = '6afcefe6049bb34f45398bea042b05c7c514a7f42ef7aa6596e8b3f1c7f8584d'
 $launcherDir = Join-Path (Get-Location) '.depsandbox\launcher'
 New-Item -ItemType Directory -Force -Path $launcherDir | Out-Null
 $p = Join-Path $launcherDir 'install.ps1'
-Invoke-WebRequest -UseBasicParsing -Uri $u -OutFile $p
+Invoke-WebRequest -UseBasicParsing -Uri $u -OutFile $p -TimeoutSec 20
+if ((Get-FileHash -Algorithm SHA256 -LiteralPath $p).Hash.ToLowerInvariant() -ne $expected) {
+  Remove-Item -LiteralPath $p -Force
+  throw 'DSB-start launcher integrity check failed.'
+}
 Unblock-File -LiteralPath $p -ErrorAction SilentlyContinue
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -TokenFile $tokenFile -RemoveTokenFileAfterRead
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Client $clientId -TokenFile $tokenFile -RemoveTokenFileAfterRead
 ```
 
 ## Что делает установщик
 
-1. Проверяет Git, Node.js 18+ и Python 3; если их нет, ищет встроенные runtime-инструменты Codex и пытается поставить недостающее через `winget`.
-2. Проверяет DNS, TCP и стандартный HTTPS/TLS доступ к `mcp.dep1c.com:443` до чтения токена.
-3. Берёт MCP-токен из локального файла в корне проекта.
-4. С этим токеном получает `install-plan.json` с `mcp.dep1c.com`.
-5. Скачивает защищённый `bootstrap.mjs`, сверяет SHA-256 из install plan.
-6. Передаёт bootstrap-скрипту путь к исходному token-файлу, а не сам токен в аргументах командной строки.
-7. При `-RemoveTokenFileAfterRead` удаляет одноразовый source-файл внутри проекта, если нативная MCP-настройка уже выполнена.
-8. Если конфигурация не выбрана автоматически, показывает список и просит выбрать одну, несколько, все или только базовые MCP.
+1. Скачивается по адресу конкретного Git commit и до запуска проверяется по SHA-256.
+2. Проверяет Git, Node.js 18+ и Python 3; если их нет, ищет доступные runtime-инструменты и пытается поставить недостающее через `winget`.
+3. Проверяет DNS, TCP и стандартный HTTPS/TLS доступ к `mcp.dep1c.com:443` до чтения токена.
+4. Берёт MCP-токен из локального файла в корне проекта.
+5. С этим токеном получает версионированный `install-plan.json` с `mcp.dep1c.com`.
+6. Скачивает защищённый `bootstrap.mjs`, сверяет SHA-256, версии и pinned upstreams.
+7. Передаёт bootstrap-скрипту путь к исходному token-файлу, а не сам токен в аргументах командной строки.
+8. При `-RemoveTokenFileAfterRead` удаляет одноразовый source-файл внутри проекта, если нативная MCP-настройка уже выполнена.
+9. Если конфигурация не выбрана автоматически, возвращает выбор текущему агенту, а не открывает отдельный диалог в терминале.
 
 ## Параметры
 
@@ -52,7 +59,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 [-ProjectR
 
 Полезные варианты:
 
-- `-Client codex`, `-Client cursor` или фактическое имя текущей среды, например `zcode` — зафиксировать агентский клиент, если автоопределение не подходит.
+- `-Client codex`, `-Client cursor` или фактическое имя текущей среды, например `zcode` — текущий агент определяет его сам и не предлагает пользователю чужие IDE.
 - `-TokenFile .\.depsandbox-token.txt` — взять токен из локального файла, не открывая интерактивный ввод.
 - `-RemoveTokenFileAfterRead` — удалить одноразовый token-файл внутри проекта после успешной нативной MCP-настройки; для generic/ZCode файл сохраняется до ручного переноса в штатное хранилище клиента.
 - `-Configuration UT1152781` — сразу выбрать пару, без интерактивного списка.
@@ -67,6 +74,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 [-ProjectR
 - Токен не передаётся в URL, argv, Git или чат.
 - При недоступности `mcp.dep1c.com:443` или ошибке стандартного HTTPS/TLS установщик останавливается до чтения токена и просит обратиться к администратору.
 - Скрипт не отключает TLS-проверку и не правит `hosts`.
+- Публичный launcher запускается только с URL конкретного Git commit после проверки SHA-256; mutable `main/install.ps1` не используется как release-вход.
 - При `-TokenFile` launcher передаёт bootstrap исходный token-файл; второй временный файл с токеном не создаётся. Временный token-файл нужен только для старого скрытого prompt fallback.
 - Для PowerShell используется process-local `-ExecutionPolicy Bypass`, системная политика Windows не меняется.
 - Настоящая инструкция, каталог конфигураций и bootstrap отдаются только после Bearer-аутентификации на `mcp.dep1c.com`.
@@ -79,7 +87,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 [-ProjectR
 Подключи песочницу DepSandbox (https://github.com/KORUS-Consulting-GK-LLC/DSB-start) к текущему проекту. Токен лежит в файле в корне проекта.
 ```
 
-Агент должен прочитать `AGENT-INSTALL.md`, найти token-файл в корне проекта, открыть терминал в корне проекта и выполнить команду из раздела «Команда для агента» с `-TokenFile`. Если текущий клиент не Codex и не Cursor, агент должен использовать штатный способ настройки MCP и правил именно для своей среды, а не спрашивать пользователя, какой из двух известных клиентов выбрать.
+Агент должен прочитать `AGENT-INSTALL.md`, найти token-файл в корне проекта,
+определить фактическое имя текущего клиента, открыть терминал в корне проекта и
+выполнить команду из раздела «Команда для агента» с `-Client` и `-TokenFile`.
+Для неизвестного bootstrap-у клиента агент продолжает настройку штатным способом
+именно своей среды по `.depsandbox/mcp-servers.json`, проверяет tools и только
+после этого удаляет одноразовый token-файл.
 
 Если Git не установлен на машине пользователя, это тоже штатный сценарий. Первая команда скачивает launcher без Git, а `install.ps1` дальше найдёт доступный Git или установит его сам.
 
