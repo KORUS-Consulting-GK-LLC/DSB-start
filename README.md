@@ -2,7 +2,7 @@
 
 Минимальный стартовый установщик DepSandbox для рабочих проектов.
 
-Цель: сотрудник открывает проект в Codex или Cursor, кладёт выданный MCP-токен в локальный файл в корне проекта и пишет агенту одну человеческую фразу. Агент сам находит token-файл, запускает официальный launcher с `-TokenFile`, а дальше установка идёт по актуальной защищённой инструкции с `https://mcp.dep1c.com/connect/`.
+Цель: сотрудник открывает проект в своём агентском клиенте, кладёт выданный MCP-токен в локальный файл в корне проекта и пишет агенту одну человеческую фразу. Агент сам находит token-файл, запускает официальный launcher с `-TokenFile`, а дальше установка идёт по актуальной защищённой инструкции с `https://mcp.dep1c.com/connect/`.
 
 ## Быстрый запуск
 
@@ -25,7 +25,9 @@
 ```powershell
 $tokenFile = Resolve-Path -LiteralPath '.depsandbox-token.txt'
 $u = 'https://raw.githubusercontent.com/KORUS-Consulting-GK-LLC/DSB-start/main/install.ps1'
-$p = Join-Path $env:TEMP ('dsb-start-' + [guid]::NewGuid() + '.ps1')
+$launcherDir = Join-Path (Get-Location) '.depsandbox\launcher'
+New-Item -ItemType Directory -Force -Path $launcherDir | Out-Null
+$p = Join-Path $launcherDir 'install.ps1'
 Invoke-WebRequest -UseBasicParsing -Uri $u -OutFile $p
 Unblock-File -LiteralPath $p -ErrorAction SilentlyContinue
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -TokenFile $tokenFile -RemoveTokenFileAfterRead
@@ -38,21 +40,21 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -TokenFile $tokenFile
 3. Берёт MCP-токен из локального файла в корне проекта.
 4. С этим токеном получает `install-plan.json` с `mcp.dep1c.com`.
 5. Скачивает защищённый `bootstrap.mjs`, сверяет SHA-256 из install plan.
-6. Передаёт токен bootstrap-скрипту через временный файл, а не через аргументы командной строки.
-7. Удаляет временный файл с токеном после запуска, а при `-RemoveTokenFileAfterRead` удаляет и одноразовый source-файл внутри проекта.
+6. Передаёт bootstrap-скрипту путь к исходному token-файлу, а не сам токен в аргументах командной строки.
+7. При `-RemoveTokenFileAfterRead` удаляет одноразовый source-файл внутри проекта, если нативная MCP-настройка уже выполнена.
 8. Если конфигурация не выбрана автоматически, показывает список и просит выбрать одну, несколько, все или только базовые MCP.
 
 ## Параметры
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 [-ProjectRoot C:\path\project] [-Client auto|codex|cursor] [-TokenFile .\.depsandbox-token.txt] [-RemoveTokenFileAfterRead] [-Configuration UT1152781,ERP_2_5_26_118] [-BaseOnly] [-AllConfigurations] [-DryRun] [-KeepRunArtifacts]
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 [-ProjectRoot C:\path\project] [-Client auto|codex|cursor|zcode|other] [-TokenFile .\.depsandbox-token.txt] [-RemoveTokenFileAfterRead] [-Configuration UT1152781,ERP_2_5_26_118] [-BaseOnly] [-AllConfigurations] [-DryRun] [-KeepRunArtifacts]
 ```
 
 Полезные варианты:
 
-- `-Client codex` или `-Client cursor` — зафиксировать IDE, если автоопределение не подходит.
+- `-Client codex`, `-Client cursor` или фактическое имя текущей среды, например `zcode` — зафиксировать агентский клиент, если автоопределение не подходит.
 - `-TokenFile .\.depsandbox-token.txt` — взять токен из локального файла, не открывая интерактивный ввод.
-- `-RemoveTokenFileAfterRead` — удалить одноразовый token-файл после чтения, только если он внутри проекта.
+- `-RemoveTokenFileAfterRead` — удалить одноразовый token-файл внутри проекта после успешной нативной MCP-настройки; для generic/ZCode файл сохраняется до ручного переноса в штатное хранилище клиента.
 - `-Configuration UT1152781` — сразу выбрать пару, без интерактивного списка.
 - `-BaseOnly` — подключить только базовые MCP без пары конфигурации.
 - `-AllConfigurations` — подключить все активные пары из каталога.
@@ -65,6 +67,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 [-ProjectR
 - Токен не передаётся в URL, argv, Git или чат.
 - При недоступности `mcp.dep1c.com:443` или ошибке стандартного HTTPS/TLS установщик останавливается до чтения токена и просит обратиться к администратору.
 - Скрипт не отключает TLS-проверку и не правит `hosts`.
+- При `-TokenFile` launcher передаёт bootstrap исходный token-файл; второй временный файл с токеном не создаётся. Временный token-файл нужен только для старого скрытого prompt fallback.
 - Для PowerShell используется process-local `-ExecutionPolicy Bypass`, системная политика Windows не меняется.
 - Настоящая инструкция, каталог конфигураций и bootstrap отдаются только после Bearer-аутентификации на `mcp.dep1c.com`.
 
@@ -76,7 +79,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 [-ProjectR
 Подключи песочницу DepSandbox (https://github.com/KORUS-Consulting-GK-LLC/DSB-start) к текущему проекту. Токен лежит в файле в корне проекта.
 ```
 
-Агент должен прочитать `AGENT-INSTALL.md`, найти token-файл в корне проекта, открыть терминал в корне проекта и выполнить команду из раздела «Команда для агента» с `-TokenFile`.
+Агент должен прочитать `AGENT-INSTALL.md`, найти token-файл в корне проекта, открыть терминал в корне проекта и выполнить команду из раздела «Команда для агента» с `-TokenFile`. Если текущий клиент не Codex и не Cursor, агент должен использовать штатный способ настройки MCP и правил именно для своей среды, а не спрашивать пользователя, какой из двух известных клиентов выбрать.
 
 Если Git не установлен на машине пользователя, это тоже штатный сценарий. Первая команда скачивает launcher без Git, а `install.ps1` дальше найдёт доступный Git или установит его сам.
 

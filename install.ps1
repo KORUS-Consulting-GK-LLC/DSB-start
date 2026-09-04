@@ -2,7 +2,6 @@
 [CmdletBinding()]
 param(
   [string]$ProjectRoot = (Get-Location).Path,
-  [ValidateSet("auto", "codex", "cursor")]
   [string]$Client = "auto",
   [string[]]$Configuration = @(),
   [switch]$AllConfigurations,
@@ -457,6 +456,7 @@ $temporaryTokenFile = $false
 $workDir = $null
 $projectRootPath = $null
 $exitCode = 0
+$nativeMcpConfigured = $true
 
 try {
   $projectRootPath = Resolve-RequiredPath $ProjectRoot
@@ -475,11 +475,15 @@ try {
   New-Item -ItemType Directory -Force -Path $workDir | Out-Null
   Set-OwnerOnlyAcl $workDir -Directory
 
-  $runtimeTokenFile = Join-Path $workDir "token.txt"
-  $utf8NoBom = New-Object Text.UTF8Encoding($false)
-  [IO.File]::WriteAllText($runtimeTokenFile, $token, $utf8NoBom)
-  Set-OwnerOnlyAcl $runtimeTokenFile
-  $temporaryTokenFile = $true
+  if ($sourceTokenFile) {
+    $runtimeTokenFile = $sourceTokenFile
+  } else {
+    $runtimeTokenFile = Join-Path $workDir "token.txt"
+    $utf8NoBom = New-Object Text.UTF8Encoding($false)
+    [IO.File]::WriteAllText($runtimeTokenFile, $token, $utf8NoBom)
+    Set-OwnerOnlyAcl $runtimeTokenFile
+    $temporaryTokenFile = $true
+  }
 
   Write-Step "Fetching protected install plan"
   $plan = Invoke-ProtectedJson ($connectRootValue + "/v1/install-plan.json") $token
@@ -515,8 +519,15 @@ try {
     if ($second.Code -ne 0) {
       throw ("Bootstrap failed with exit code " + $second.Code)
     }
+    $finalPayload = Get-LastJsonObject $second.Output
   } elseif ($first.Code -ne 0) {
     throw ("Bootstrap failed with exit code " + $first.Code)
+  } else {
+    $finalPayload = Get-LastJsonObject $first.Output
+  }
+
+  if ($null -ne $finalPayload -and $null -ne $finalPayload.native_mcp_configured) {
+    $nativeMcpConfigured = [bool]$finalPayload.native_mcp_configured
   }
 
   Write-Step "Done. Restart the IDE or open a new agent task if MCP tools are not visible yet."
@@ -532,13 +543,17 @@ try {
   }
   if ($RemoveTokenFileAfterRead -and $sourceTokenFile -and $projectRootPath -and (Test-Path -LiteralPath $sourceTokenFile)) {
     try {
-      $projectFull = ([IO.Path]::GetFullPath($projectRootPath)).TrimEnd("\") + "\"
-      $tokenFull = [IO.Path]::GetFullPath($sourceTokenFile)
-      if ($tokenFull.StartsWith($projectFull, [StringComparison]::OrdinalIgnoreCase)) {
-        Remove-Item -LiteralPath $sourceTokenFile -Force
-        Write-Step "Removed one-time token file from the project directory."
+      if (-not $nativeMcpConfigured) {
+        Write-Step "Token file kept because this client still needs native MCP setup."
       } else {
-        Write-Step "Token file was outside the project directory, leaving it untouched."
+        $projectFull = ([IO.Path]::GetFullPath($projectRootPath)).TrimEnd("\") + "\"
+        $tokenFull = [IO.Path]::GetFullPath($sourceTokenFile)
+        if ($tokenFull.StartsWith($projectFull, [StringComparison]::OrdinalIgnoreCase)) {
+          Remove-Item -LiteralPath $sourceTokenFile -Force
+          Write-Step "Removed one-time token file from the project directory."
+        } else {
+          Write-Step "Token file was outside the project directory, leaving it untouched."
+        }
       }
     } catch {
       Write-Step "Warning: failed to remove token file. Delete it manually if it was one-time."
