@@ -456,7 +456,7 @@ $temporaryTokenFile = $false
 $workDir = $null
 $projectRootPath = $null
 $exitCode = 0
-$nativeMcpConfigured = $true
+$nativeMcpConfigured = $false
 
 try {
   $projectRootPath = Resolve-RequiredPath $ProjectRoot
@@ -541,7 +541,7 @@ try {
   if ($workDir -and (Test-Path -LiteralPath $workDir) -and -not $KeepWorkDir) {
     Remove-Item -LiteralPath $workDir -Recurse -Force
   }
-  if ($RemoveTokenFileAfterRead -and $sourceTokenFile -and $projectRootPath -and (Test-Path -LiteralPath $sourceTokenFile)) {
+  if ($RemoveTokenFileAfterRead -and $exitCode -eq 0 -and $sourceTokenFile -and $projectRootPath -and (Test-Path -LiteralPath $sourceTokenFile)) {
     try {
       if (-not $nativeMcpConfigured) {
         Write-Step "Token file kept because this client still needs native MCP setup."
