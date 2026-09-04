@@ -17,6 +17,8 @@ param(
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
+$LauncherVersion = "0.2.0"
+$SupportedContractVersion = "1.0.0"
 
 function Write-Step {
   param([string]$Message)
@@ -204,9 +206,9 @@ function Test-ConnectEndpointAccess {
 }
 
 function Get-PythonCommand {
-  if (Test-NativeCommand "py" @("-3", "--version")) { return "py" }
-  if (Test-NativeCommand "py" @("--version")) { return "py" }
-  if (Test-NativeCommand "python" @("--version")) { return "python" }
+  $probe = "import sys; raise SystemExit(0 if sys.version_info[0] == 3 else 1)"
+  if (Test-NativeCommand "python" @("-c", $probe)) { return "python" }
+  if (Test-NativeCommand "py" @("-c", $probe)) { return "py" }
   return $null
 }
 
@@ -278,6 +280,56 @@ function Get-PlainToken {
   return $value
 }
 
+function Protect-TokenFileFromGit {
+  param(
+    [string]$ProjectRootValue,
+    [string]$TokenFileValue
+  )
+  if (-not $TokenFileValue) { return }
+  $tokenPath = Resolve-RequiredPath $TokenFileValue
+  $git = Get-CommandSource "git"
+  if (-not $git) { return }
+  $oldPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = "Continue"
+    $repoRootOutput = @(& $git -C $ProjectRootValue rev-parse --show-toplevel 2>$null)
+    $repoRootCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $oldPreference
+  }
+  if ($repoRootCode -ne 0 -or $repoRootOutput.Count -eq 0) { return }
+  $repoRoot = ([string]$repoRootOutput[0]).Trim()
+  $repoPrefix = ([IO.Path]::GetFullPath($repoRoot)).TrimEnd("\") + "\"
+  $tokenFull = [IO.Path]::GetFullPath($tokenPath)
+  if (-not $tokenFull.StartsWith($repoPrefix, [StringComparison]::OrdinalIgnoreCase)) { return }
+  $rootUri = [Uri]$repoPrefix
+  $tokenUri = [Uri]$tokenFull
+  $relative = [Uri]::UnescapeDataString($rootUri.MakeRelativeUri($tokenUri).ToString())
+  try {
+    $ErrorActionPreference = "Continue"
+    & $git -C $repoRoot ls-files --error-unmatch -- $relative 2>$null | Out-Null
+    $trackedCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $oldPreference
+  }
+  if ($trackedCode -eq 0) {
+    throw "SECURITY_BLOCK: token file is already tracked by Git. Rotate the token and remove it from Git history before retrying."
+  }
+  try {
+    $ErrorActionPreference = "Continue"
+    & $git -C $repoRoot check-ignore --quiet -- $relative 2>$null | Out-Null
+    $ignoredCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $oldPreference
+  }
+  if ($ignoredCode -eq 0) { return }
+  $exclude = Join-Path $repoRoot ".git\info\exclude"
+  $excludeDirectory = Split-Path -Parent $exclude
+  [IO.Directory]::CreateDirectory($excludeDirectory) | Out-Null
+  [IO.File]::AppendAllText($exclude, $relative + [Environment]::NewLine, (New-Object Text.UTF8Encoding($false)))
+  Write-Step "Protected the local token file through .git/info/exclude before reading it."
+}
+
 function Set-OwnerOnlyAcl {
   param(
     [string]$Path,
@@ -315,7 +367,7 @@ function Invoke-ProtectedJson {
     Accept = "application/json"
   }
   try {
-    return Invoke-RestMethod -Method Get -Uri $Uri -Headers $headers -MaximumRedirection 0 -ErrorAction Stop
+    return Invoke-RestMethod -Method Get -Uri $Uri -Headers $headers -MaximumRedirection 0 -TimeoutSec 20 -ErrorAction Stop
   } catch {
     throw ("Protected request failed: " + $Uri + ". Check token, DNS/VPN and TLS trust.")
   }
@@ -332,7 +384,7 @@ function Save-ProtectedFile {
     Accept = "application/octet-stream"
   }
   try {
-    Invoke-WebRequest -UseBasicParsing -Method Get -Uri $Uri -Headers $headers -OutFile $OutFile -MaximumRedirection 0 -ErrorAction Stop
+    Invoke-WebRequest -UseBasicParsing -Method Get -Uri $Uri -Headers $headers -OutFile $OutFile -MaximumRedirection 0 -TimeoutSec 20 -ErrorAction Stop
   } catch {
     throw ("Protected download failed: " + $Uri + ". Check token, DNS/VPN and TLS trust.")
   }
@@ -375,46 +427,6 @@ function Get-ActiveConfigurationIds {
   return @($catalog.configurations | Where-Object { $_.lifecycle -eq "active" } | ForEach-Object { $_.id })
 }
 
-function Select-ConfigurationsFromPayload {
-  param($Payload)
-  $configs = @($Payload.configurations)
-  if ($configs.Count -eq 0) { throw "Bootstrap requested a selection but returned an empty catalog." }
-
-  Write-Host ""
-  Write-Step "Select configuration MCP pair"
-  Write-Host "  0) Base MCP only"
-  for ($index = 0; $index -lt $configs.Count; $index++) {
-    $item = $configs[$index]
-    $number = $index + 1
-    $label = [string]$item.display_name
-    $id = [string]$item.id
-    $life = [string]$item.lifecycle
-    Write-Host ("  " + $number + ") " + $id + " - " + $label + " [" + $life + "]")
-  }
-  Write-Host "  all) All active configurations"
-  $answer = Read-Host "Enter number, comma-separated numbers, all, or 0"
-  $answer = ([string]$answer).Trim()
-  if ($answer -eq "0") { return @() }
-  if ($answer.ToLowerInvariant() -eq "all") {
-    return @($configs | Where-Object { $_.lifecycle -eq "active" } | ForEach-Object { $_.id })
-  }
-  $ids = @()
-  foreach ($part in $answer.Split(",")) {
-    $trimmed = $part.Trim()
-    if (-not $trimmed) { continue }
-    $parsed = 0
-    if (-not [int]::TryParse($trimmed, [ref]$parsed)) {
-      throw ("Invalid selection item: " + $trimmed)
-    }
-    if ($parsed -lt 1 -or $parsed -gt $configs.Count) {
-      throw ("Selection item is out of range: " + $trimmed)
-    }
-    $ids += [string]$configs[$parsed - 1].id
-  }
-  if ($ids.Count -eq 0) { throw "No configuration selected." }
-  return $ids
-}
-
 function Invoke-Bootstrap {
   param(
     [string]$NodePath,
@@ -422,11 +434,20 @@ function Invoke-Bootstrap {
     [string]$ProjectRootValue,
     [string]$ClientValue,
     [string]$RuntimeTokenFile,
+    [string]$InstallPlanPath,
+    [string]$ConnectRootValue,
     [string[]]$SelectedConfiguration = @(),
     [switch]$BaseOnlyValue,
     [switch]$DryRunValue
   )
-  $args = @($BootstrapPath, "--project-root", $ProjectRootValue, "--token-file", $RuntimeTokenFile)
+  $args = @(
+    $BootstrapPath,
+    "--project-root", $ProjectRootValue,
+    "--token-file", $RuntimeTokenFile,
+    "--install-plan", $InstallPlanPath,
+    "--connect-root", $ConnectRootValue,
+    "--launcher-version", $LauncherVersion
+  )
   if ($ClientValue -ne "auto") { $args += @("--client", $ClientValue) }
   if ($BaseOnlyValue) {
     $args += "--base-only"
@@ -457,6 +478,7 @@ $workDir = $null
 $projectRootPath = $null
 $exitCode = 0
 $nativeMcpConfigured = $false
+$selectionRequired = $false
 
 try {
   $projectRootPath = Resolve-RequiredPath $ProjectRoot
@@ -464,10 +486,10 @@ try {
   if ($AllConfigurations -and $Configuration.Count -gt 0) { throw "Use either -AllConfigurations or -Configuration, not both." }
 
   Write-Step ("Project root: " + $projectRootPath)
+  Test-ConnectEndpointAccess $ConnectRoot
   Ensure-Prerequisites
 
-  Test-ConnectEndpointAccess $ConnectRoot
-
+  Protect-TokenFileFromGit $projectRootPath $TokenFile
   $token = Get-PlainToken
   $connectRootValue = $ConnectRoot.TrimEnd("/")
   $runName = "dsb-start-" + ([Guid]::NewGuid().ToString("N"))
@@ -487,10 +509,25 @@ try {
 
   Write-Step "Fetching protected install plan"
   $plan = Invoke-ProtectedJson ($connectRootValue + "/v1/install-plan.json") $token
+  if ([string]$plan.contract_version -ne $SupportedContractVersion) {
+    throw ("Unsupported install contract version: " + [string]$plan.contract_version)
+  }
+  if ([Version]$LauncherVersion -lt [Version]([string]$plan.minimum_launcher_version)) {
+    throw ("Launcher " + $LauncherVersion + " is incompatible with required version " + [string]$plan.minimum_launcher_version)
+  }
   $bootstrapUrl = [string]$plan.entrypoint.url
   $expectedHash = ([string]$plan.entrypoint.sha256).ToLowerInvariant()
   if (-not $bootstrapUrl) { throw "Install plan does not contain entrypoint.url." }
   if (-not $expectedHash) { throw "Install plan does not contain entrypoint.sha256." }
+  $connectOrigin = ([Uri]$connectRootValue).GetLeftPart([UriPartial]::Authority)
+  $bootstrapOrigin = ([Uri]$bootstrapUrl).GetLeftPart([UriPartial]::Authority)
+  if ($bootstrapOrigin -ne $connectOrigin -or [string]$plan.entrypoint.allowed_origin -ne $connectOrigin) {
+    throw "Install plan entrypoint must stay on the trusted connect origin."
+  }
+
+  $installPlanPath = Join-Path $workDir "install-plan.json"
+  $planJson = $plan | ConvertTo-Json -Depth 20
+  [IO.File]::WriteAllText($installPlanPath, $planJson, (New-Object Text.UTF8Encoding($false)))
 
   $bootstrapPath = Join-Path $workDir "bootstrap.mjs"
   Write-Step "Downloading protected bootstrap"
@@ -512,6 +549,8 @@ try {
     -ProjectRootValue $projectRootPath `
     -ClientValue $Client `
     -RuntimeTokenFile $runtimeTokenFile `
+    -InstallPlanPath $installPlanPath `
+    -ConnectRootValue $connectRootValue `
     -SelectedConfiguration $selected `
     -BaseOnlyValue:$BaseOnly `
     -DryRunValue:$DryRun
@@ -520,22 +559,9 @@ try {
   if ($first.Code -eq 20) {
     $payload = Get-LastJsonObject $first.Output
     if ($null -eq $payload) { throw "Bootstrap requested selection but no JSON payload was found." }
-    $selected = Select-ConfigurationsFromPayload $payload
-    $baseOnlyAfterSelection = ($selected.Count -eq 0)
-    $second = Invoke-Bootstrap `
-      -NodePath $nodePath `
-      -BootstrapPath $bootstrapPath `
-      -ProjectRootValue $projectRootPath `
-      -ClientValue $Client `
-      -RuntimeTokenFile $runtimeTokenFile `
-      -SelectedConfiguration $selected `
-      -BaseOnlyValue:$baseOnlyAfterSelection `
-      -DryRunValue:$DryRun
-    $second.Output | ForEach-Object { Write-Host $_ }
-    if ($second.Code -ne 0) {
-      throw ("Bootstrap failed with exit code " + $second.Code)
-    }
-    $finalPayload = Get-LastJsonObject $second.Output
+    $selectionRequired = $true
+    Write-Step "AGENT_SELECTION_REQUIRED: ask the user which configuration pair is needed, then rerun with -Configuration <ID> or -BaseOnly."
+    throw "SELECTION_REQUIRED"
   } elseif ($first.Code -ne 0) {
     throw ("Bootstrap failed with exit code " + $first.Code)
   } else {
@@ -546,10 +572,18 @@ try {
     $nativeMcpConfigured = [bool]$finalPayload.native_mcp_configured
   }
 
-  Write-Step "Done. Restart the IDE or open a new agent task if MCP tools are not visible yet."
+  if ($null -ne $finalPayload -and [string]$finalPayload.status -eq "manual_step_required") {
+    Write-Step "AGENT_MANUAL_STEP_REQUIRED: configure MCP through the current client's native settings using .depsandbox/mcp-servers.json, verify the tools, then report completion."
+  } else {
+    Write-Step "Done. Restart the IDE or open a new agent task if MCP tools are not visible yet."
+  }
 } catch {
-  Write-Step ("ERROR: " + $_.Exception.Message)
-  $exitCode = 1
+  if ($selectionRequired -and $_.Exception.Message -eq "SELECTION_REQUIRED") {
+    $exitCode = 20
+  } else {
+    Write-Step ("ERROR: " + $_.Exception.Message)
+    $exitCode = 1
+  }
 } finally {
   if ($temporaryTokenFile -and $runtimeTokenFile -and (Test-Path -LiteralPath $runtimeTokenFile)) {
     Remove-Item -LiteralPath $runtimeTokenFile -Force

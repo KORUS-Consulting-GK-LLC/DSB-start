@@ -92,8 +92,28 @@ if (-not $combined.Contains("-BaseOnlyValue:`$BaseOnly")) {
   throw "Named -BaseOnlyValue binding for the first bootstrap call is absent."
 }
 
-if (-not $combined.Contains("-BaseOnlyValue:`$baseOnlyAfterSelection")) {
-  throw "Named -BaseOnlyValue binding for the interactive bootstrap call is absent."
+if ($combined.Contains("Select-ConfigurationsFromPayload")) {
+  throw "Configuration selection must be returned to the current agent, not requested in a terminal prompt."
+}
+
+if (-not $combined.Contains("AGENT_SELECTION_REQUIRED")) {
+  throw "Agent-facing configuration selection marker is absent."
+}
+
+if (-not $combined.Contains('LauncherVersion = "0.2.0"')) {
+  throw "Versioned launcher contract is absent."
+}
+
+if (-not $combined.Contains("Protect-TokenFileFromGit")) {
+  throw "Tracked token-file protection is absent."
+}
+
+if (-not $combined.Contains("--install-plan")) {
+  throw "Bootstrap install-plan handoff is absent."
+}
+
+if (-not $combined.Contains("-TimeoutSec 20")) {
+  throw "Protected HTTP timeout is absent."
 }
 
 if (-not $combined.Contains("DEPSANDBOX_DOMAIN_UNAVAILABLE")) {
