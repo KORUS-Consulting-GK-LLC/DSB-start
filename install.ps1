@@ -422,7 +422,7 @@ function Invoke-Bootstrap {
     [string]$ProjectRootValue,
     [string]$ClientValue,
     [string]$RuntimeTokenFile,
-    [string[]]$SelectedConfiguration,
+    [string[]]$SelectedConfiguration = @(),
     [switch]$BaseOnlyValue,
     [switch]$DryRunValue
   )
@@ -506,7 +506,15 @@ try {
   }
 
   $nodePath = Get-CommandSource "node"
-  $first = Invoke-Bootstrap $nodePath $bootstrapPath $projectRootPath $Client $runtimeTokenFile $selected $BaseOnly $DryRun
+  $first = Invoke-Bootstrap `
+    -NodePath $nodePath `
+    -BootstrapPath $bootstrapPath `
+    -ProjectRootValue $projectRootPath `
+    -ClientValue $Client `
+    -RuntimeTokenFile $runtimeTokenFile `
+    -SelectedConfiguration $selected `
+    -BaseOnlyValue:$BaseOnly `
+    -DryRunValue:$DryRun
   $first.Output | ForEach-Object { Write-Host $_ }
 
   if ($first.Code -eq 20) {
@@ -514,7 +522,15 @@ try {
     if ($null -eq $payload) { throw "Bootstrap requested selection but no JSON payload was found." }
     $selected = Select-ConfigurationsFromPayload $payload
     $baseOnlyAfterSelection = ($selected.Count -eq 0)
-    $second = Invoke-Bootstrap $nodePath $bootstrapPath $projectRootPath $Client $runtimeTokenFile $selected $baseOnlyAfterSelection $DryRun
+    $second = Invoke-Bootstrap `
+      -NodePath $nodePath `
+      -BootstrapPath $bootstrapPath `
+      -ProjectRootValue $projectRootPath `
+      -ClientValue $Client `
+      -RuntimeTokenFile $runtimeTokenFile `
+      -SelectedConfiguration $selected `
+      -BaseOnlyValue:$baseOnlyAfterSelection `
+      -DryRunValue:$DryRun
     $second.Output | ForEach-Object { Write-Host $_ }
     if ($second.Code -ne 0) {
       throw ("Bootstrap failed with exit code " + $second.Code)

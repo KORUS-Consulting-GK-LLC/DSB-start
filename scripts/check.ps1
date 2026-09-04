@@ -84,6 +84,18 @@ if (-not $combined.Contains("-KeepRunArtifacts")) {
   throw "Run artifact debug option is absent."
 }
 
+if ($combined.Contains("Invoke-Bootstrap `$nodePath `$bootstrapPath")) {
+  throw "Invoke-Bootstrap must use named parameters; positional calls can drop -BaseOnly when the selected configuration array is empty."
+}
+
+if (-not $combined.Contains("-BaseOnlyValue:`$BaseOnly")) {
+  throw "Named -BaseOnlyValue binding for the first bootstrap call is absent."
+}
+
+if (-not $combined.Contains("-BaseOnlyValue:`$baseOnlyAfterSelection")) {
+  throw "Named -BaseOnlyValue binding for the interactive bootstrap call is absent."
+}
+
 if (-not $combined.Contains("DEPSANDBOX_DOMAIN_UNAVAILABLE")) {
   throw "Domain-unavailable diagnostic marker is absent."
 }

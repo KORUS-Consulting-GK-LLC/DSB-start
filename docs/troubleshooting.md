@@ -60,3 +60,15 @@ What to do:
 This is usually a behavior-based detection, not proof that the public launcher contains malware. The risky pattern is an extra temporary PowerShell wrapper that starts a transcript, runs another downloaded `.ps1`, and passes paths through `%TEMP%`.
 
 Use the command from `AGENT-INSTALL.md` directly from the project terminal. Do not create `dsb-run*.ps1`, do not use `Start-Transcript`, and keep the token file in the project root until the launcher reads it.
+
+## Base-only setup unexpectedly asks for a configuration
+
+Symptom:
+
+```text
+install.ps1 -BaseOnly
+```
+
+still reaches the interactive configuration-selection step.
+
+This was caused by positional PowerShell parameter binding when an empty configuration array was passed to `Invoke-Bootstrap`. Current launcher builds the bootstrap call with named parameters, so `-BaseOnly` is preserved even when no configuration IDs are selected.
