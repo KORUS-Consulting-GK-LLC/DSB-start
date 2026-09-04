@@ -395,8 +395,14 @@ function Invoke-NativeCapture {
     [string]$FilePath,
     [string[]]$Arguments
   )
-  $output = @(& $FilePath @Arguments 2>&1 | ForEach-Object { [string]$_ })
-  $code = $LASTEXITCODE
+  $oldPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = "Continue"
+    $output = @(& $FilePath @Arguments 2>&1 | ForEach-Object { [string]$_ })
+    $code = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $oldPreference
+  }
   if ($null -eq $code) { $code = 0 }
   return [PSCustomObject]@{
     Code = [int]$code
