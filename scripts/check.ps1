@@ -9,6 +9,8 @@ $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $install = Join-Path $root "install.ps1"
 $readme = Join-Path $root "README.md"
 $agentInstall = Join-Path $root "AGENT-INSTALL.md"
+$agents = Join-Path $root "AGENTS.md"
+$agentPrompt = Join-Path $root "docs\agent-prompt.md"
 $security = Join-Path $root "docs\security.md"
 $troubleshooting = Join-Path $root "docs\troubleshooting.md"
 
@@ -20,7 +22,7 @@ if ($errors.Count -gt 0) {
   throw "install.ps1 has PowerShell parse errors."
 }
 
-$combined = [IO.File]::ReadAllText($install) + [IO.File]::ReadAllText($readme) + [IO.File]::ReadAllText($agentInstall) + [IO.File]::ReadAllText($security) + [IO.File]::ReadAllText($troubleshooting)
+$combined = [IO.File]::ReadAllText($install) + [IO.File]::ReadAllText($readme) + [IO.File]::ReadAllText($agentInstall) + [IO.File]::ReadAllText($agents) + [IO.File]::ReadAllText($agentPrompt) + [IO.File]::ReadAllText($security) + [IO.File]::ReadAllText($troubleshooting)
 $forbiddenLiterals = @(
   "Authorization = `"Bearer "
 )
@@ -53,6 +55,11 @@ if (-not $combined.Contains("powershell.exe -NoProfile -ExecutionPolicy Bypass -
   throw "ExecutionPolicy Bypass -File launcher command is absent."
 }
 
+$expectedPrompt = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("0J/QvtC00LrQu9GO0YfQuCDQv9C10YHQvtGH0L3QuNGG0YMgRGVwU2FuZGJveCAoaHR0cHM6Ly9naXRodWIuY29tL0tPUlVTLUNvbnN1bHRpbmctR0stTExDL0RTQi1zdGFydCkg0Log0YLQtdC60YPRidC10LzRgyDQv9GA0L7QtdC60YLRgy4g0KLQvtC60LXQvSDQu9C10LbQuNGCINCyINGE0LDQudC70LUg0LIg0LrQvtGA0L3QtSDQv9GA0L7QtdC60YLQsC4="))
+if (-not $combined.Contains($expectedPrompt)) {
+  throw "Expected natural-language token-file prompt is absent."
+}
+
 if (-not $combined.Contains("Unblock-File -LiteralPath `$p")) {
   throw "Unblock-File guidance is absent."
 }
@@ -63,6 +70,26 @@ if (-not $combined.Contains("native\git\cmd")) {
 
 if (-not $combined.Contains("READY_FOR_TOKEN")) {
   throw "Terminal readiness marker is absent."
+}
+
+if (-not $combined.Contains("-TokenFile")) {
+  throw "Token file flow is absent."
+}
+
+if (-not $combined.Contains("-RemoveTokenFileAfterRead")) {
+  throw "One-time token file cleanup option is absent."
+}
+
+if (-not $combined.Contains("-KeepRunArtifacts")) {
+  throw "Run artifact debug option is absent."
+}
+
+if (-not $combined.Contains("DEPSANDBOX_DOMAIN_UNAVAILABLE")) {
+  throw "Domain-unavailable diagnostic marker is absent."
+}
+
+if (-not $combined.Contains("HTTPS/TLS")) {
+  throw "HTTPS/TLS preflight marker is absent."
 }
 
 if (-not $combined.Contains("PS C:\path>")) {

@@ -10,6 +10,8 @@ param(
   [switch]$DryRun,
   [switch]$NoInstallPrerequisites,
   [switch]$KeepWorkDir,
+  [switch]$KeepRunArtifacts,
+  [switch]$RemoveTokenFileAfterRead,
   [string]$TokenFile,
   [string]$ConnectRoot = "https://mcp.dep1c.com/connect"
 )
@@ -96,6 +98,112 @@ function Test-Node18 {
   }
 }
 
+function Get-ConnectTarget {
+  param([string]$ConnectRootValue)
+  try {
+    $uri = [Uri]$ConnectRootValue
+  } catch {
+    throw ("Invalid ConnectRoot URI: " + $ConnectRootValue)
+  }
+  if (-not $uri.Host) { throw ("ConnectRoot URI has no host: " + $ConnectRootValue) }
+  $port = $uri.Port
+  if ($uri.IsDefaultPort) {
+    if ($uri.Scheme -eq "https") { $port = 443 }
+    elseif ($uri.Scheme -eq "http") { $port = 80 }
+  }
+  return [PSCustomObject]@{
+    Host = $uri.DnsSafeHost
+    Port = [int]$port
+  }
+}
+
+function Get-DomainUnavailableUserMessage {
+  return [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("0L7QsdGA0LDRgtC40YLQtdGB0Ywg0Log0LDQtNC80LjQvdC40YHRgtGA0LDRgtC+0YDRgywg0L/QtdGB0L7Rh9C90LjRhtCwINC90LXQtNC+0YHRgtGD0L/QvdCwINC/0L4g0LTQvtC80LXQvdC90L7QvNGDINC40LzQtdC90Lg="))
+}
+
+function Throw-ConnectAccessError {
+  param(
+    [string]$Reason,
+    [string]$HostName,
+    [int]$Port
+  )
+  throw ("DEPSANDBOX_DOMAIN_UNAVAILABLE: " + $HostName + ":" + $Port + " is unavailable by DNS name. " + $Reason + ". " + (Get-DomainUnavailableUserMessage))
+}
+
+function Test-ConnectEndpointAccess {
+  param([string]$ConnectRootValue)
+  $target = Get-ConnectTarget $ConnectRootValue
+  Write-Step ("Checking access to " + $target.Host + ":" + $target.Port + " by DNS name")
+
+  $addresses = @()
+  $dnsError = $null
+  try {
+    $dnsTask = [Net.Dns]::GetHostAddressesAsync($target.Host)
+    $dnsCompleted = $false
+    try {
+      $dnsCompleted = $dnsTask.Wait(5000)
+    } catch {
+      $dnsError = "DNS resolution failed: " + $_.Exception.GetBaseException().Message
+    }
+    if (-not $dnsError) {
+      if (-not $dnsCompleted) {
+        $dnsError = "DNS resolution timed out"
+      } else {
+        $addresses = @($dnsTask.Result)
+      }
+    }
+  } catch {
+    $dnsError = "DNS resolution failed: " + $_.Exception.Message
+  }
+  if ($dnsError) { Throw-ConnectAccessError $dnsError $target.Host $target.Port }
+  if ($addresses.Count -eq 0) {
+    Throw-ConnectAccessError "DNS returned no addresses" $target.Host $target.Port
+  }
+
+  $client = [Net.Sockets.TcpClient]::new()
+  $async = $null
+  $tcpError = $null
+  try {
+    $async = $client.BeginConnect($target.Host, $target.Port, $null, $null)
+    if (-not $async.AsyncWaitHandle.WaitOne(5000, $false)) {
+      $tcpError = "TCP connection timed out"
+    } else {
+      $client.EndConnect($async)
+    }
+  } catch {
+    $tcpError = "TCP connection failed: " + $_.Exception.Message
+  } finally {
+    if ($async -and $async.AsyncWaitHandle) { $async.AsyncWaitHandle.Close() }
+    $client.Close()
+  }
+  if ($tcpError) { Throw-ConnectAccessError $tcpError $target.Host $target.Port }
+
+  $uri = [Uri]$ConnectRootValue
+  if ($uri.Scheme -eq "https") {
+    $tlsError = $null
+    $response = $null
+    try {
+      $request = [Net.WebRequest]::Create($uri.AbsoluteUri)
+      $request.Method = "HEAD"
+      $request.Timeout = 5000
+      $request.AllowAutoRedirect = $false
+      $request.UserAgent = "DSB-start preflight"
+      $response = $request.GetResponse()
+    } catch [Net.WebException] {
+      if ($_.Exception.Response) {
+        $response = $_.Exception.Response
+      } else {
+        $tlsError = "HTTPS/TLS request failed: " + $_.Exception.Message
+      }
+    } catch {
+      $tlsError = "HTTPS/TLS request failed: " + $_.Exception.Message
+    } finally {
+      if ($response) { $response.Close() }
+    }
+    if ($tlsError) { Throw-ConnectAccessError $tlsError $target.Host $target.Port }
+  }
+}
+
 function Get-PythonCommand {
   if (Test-NativeCommand "py" @("-3", "--version")) { return "py" }
   if (Test-NativeCommand "py" @("--version")) { return "py" }
@@ -150,6 +258,7 @@ function Ensure-Prerequisites {
 function Get-PlainToken {
   if ($TokenFile) {
     $tokenPath = Resolve-RequiredPath $TokenFile
+    $script:sourceTokenFile = $tokenPath
     $value = [IO.File]::ReadAllText($tokenPath, [Text.Encoding]::UTF8).Trim()
     if (-not $value) { throw "Token file is empty." }
     if ($value -match "\s") { throw "Token file must contain one token without whitespace." }
@@ -326,6 +435,7 @@ function Invoke-Bootstrap {
     $args += @("--configuration", ($SelectedConfiguration -join ","))
   }
   if ($DryRunValue) { $args += "--dry-run" }
+  if ($KeepRunArtifacts) { $args += "--keep-run-artifacts" }
   return Invoke-NativeCapture $NodePath $args
 }
 
@@ -342,8 +452,11 @@ function Normalize-ConfigurationInput {
 }
 
 $runtimeTokenFile = $null
+$sourceTokenFile = $null
 $temporaryTokenFile = $false
 $workDir = $null
+$projectRootPath = $null
+$exitCode = 0
 
 try {
   $projectRootPath = Resolve-RequiredPath $ProjectRoot
@@ -352,6 +465,8 @@ try {
 
   Write-Step ("Project root: " + $projectRootPath)
   Ensure-Prerequisites
+
+  Test-ConnectEndpointAccess $ConnectRoot
 
   $token = Get-PlainToken
   $connectRootValue = $ConnectRoot.TrimEnd("/")
@@ -405,6 +520,9 @@ try {
   }
 
   Write-Step "Done. Restart the IDE or open a new agent task if MCP tools are not visible yet."
+} catch {
+  Write-Step ("ERROR: " + $_.Exception.Message)
+  $exitCode = 1
 } finally {
   if ($temporaryTokenFile -and $runtimeTokenFile -and (Test-Path -LiteralPath $runtimeTokenFile)) {
     Remove-Item -LiteralPath $runtimeTokenFile -Force
@@ -412,4 +530,22 @@ try {
   if ($workDir -and (Test-Path -LiteralPath $workDir) -and -not $KeepWorkDir) {
     Remove-Item -LiteralPath $workDir -Recurse -Force
   }
+  if ($RemoveTokenFileAfterRead -and $sourceTokenFile -and $projectRootPath -and (Test-Path -LiteralPath $sourceTokenFile)) {
+    try {
+      $projectFull = ([IO.Path]::GetFullPath($projectRootPath)).TrimEnd("\") + "\"
+      $tokenFull = [IO.Path]::GetFullPath($sourceTokenFile)
+      if ($tokenFull.StartsWith($projectFull, [StringComparison]::OrdinalIgnoreCase)) {
+        Remove-Item -LiteralPath $sourceTokenFile -Force
+        Write-Step "Removed one-time token file from the project directory."
+      } else {
+        Write-Step "Token file was outside the project directory, leaving it untouched."
+      }
+    } catch {
+      Write-Step "Warning: failed to remove token file. Delete it manually if it was one-time."
+    }
+  }
+}
+
+if ($exitCode -ne 0) {
+  exit $exitCode
 }

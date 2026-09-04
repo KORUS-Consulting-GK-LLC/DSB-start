@@ -2,7 +2,7 @@
 
 - Keep this repository secret-free. Do not commit Bearer tokens, generated MCP configs, logs with Authorization headers, or user-specific paths.
 - `install.ps1` must remain compatible with Windows PowerShell 5.1 and PowerShell 7. Keep executable script text ASCII-only unless there is a deliberate tested reason.
-- The user-facing UX goal is one natural-language request to the local agent. The agent runs the launcher from the target project root. The token is requested locally by the launcher, not pasted into an agent chat.
+- The user-facing UX goal is one natural-language request to the local agent. The agent runs the launcher from the target project root. The user puts the token in a local file in the project root; the token is not pasted into an agent chat, argv, URL, Git, or logs.
 - The first public launcher download must not require Git. It is fetched through HTTPS/PowerShell; `install.ps1` is responsible for finding bundled runtime Git or installing Git when it is missing.
 - Agents must follow `AGENT-INSTALL.md`: run the downloaded script through `powershell.exe -NoProfile -ExecutionPolicy Bypass -File`, not by direct `.\install.ps1` or `& $p` execution.
 - Do not patch the temporary downloaded `install.ps1` in a user's project. Any fix belongs in this repository.

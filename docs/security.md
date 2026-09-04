@@ -10,7 +10,7 @@
 
 ## Основные решения
 
-- Токен вводится локально через `Read-Host -AsSecureString` или читается из явно указанного файла.
+- Токен читается из локального файла в корне проекта, переданного launcher-у через `-TokenFile`.
 - Токен передаётся protected bootstrap через временный файл с best-effort owner-only ACL.
 - Токен не попадает в argv, URL, GitHub, README-примеры или completion report.
 - `bootstrap.mjs` скачивается только после Bearer-аутентификации и проверяется по SHA-256 из `install-plan.json`.
